@@ -1,5 +1,6 @@
 package ai.turbochain.ipex.wallet.controller;
 
+import java.math.BigDecimal;
 import java.text.DecimalFormat;
 
 import org.slf4j.Logger;
@@ -114,6 +115,32 @@ public class WalletController {
 		} catch (Exception e) {
 			e.printStackTrace();
 			return MessageResult.error(500, "查询失败，error:" + e.getMessage());
+		}
+	}
+	
+	
+	/**
+	 * 所有账户余额
+	 * 
+	 * @return
+	 */
+	@GetMapping("balance")
+	public MessageResult balance() {
+		try {
+			String GET_CURRENT_BALANCE_REQUEST = "{\n" + "\t\"code\" : \"eosio.token\"\n" + "\t\"account\" : \""
+					+ coin.getWithdrawAddress() + "\"\n" + "}";
+			@SuppressWarnings("deprecation")
+			RequestBody requestBody = RequestBody.create(okhttp3.MediaType.parse("application/json; charset=utf-8"),
+					GET_CURRENT_BALANCE_REQUEST);
+			MessageResult result = new MessageResult(0, "success");
+			String balance = eosioJavaRpcProviderImpl.getCurrencyBalance(requestBody);
+			BigDecimal allBanlanceBigDecimal = new BigDecimal(balance.substring(balance.indexOf("[\\\"") + "[\\\"".length(),
+					balance.indexOf(" EOS")));
+			result.setData(allBanlanceBigDecimal);
+			return result;
+		} catch (Exception e) {
+			e.printStackTrace();
+			return MessageResult.error(500, "error:" + e.getMessage());
 		}
 	}
 }
