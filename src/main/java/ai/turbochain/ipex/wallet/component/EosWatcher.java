@@ -1,6 +1,7 @@
 package ai.turbochain.ipex.wallet.component;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Component;
 import ai.turbochain.ipex.wallet.entity.Account;
 import ai.turbochain.ipex.wallet.entity.Coin;
 import ai.turbochain.ipex.wallet.entity.Deposit;
+import ai.turbochain.ipex.wallet.event.DepositEvent;
 import ai.turbochain.ipex.wallet.service.AccountService;
 import one.block.eosiojava.interfaces.IRPCProvider;
 import one.block.eosiojava.models.rpcProvider.request.GetBlockRequest;
@@ -31,18 +33,51 @@ public class EosWatcher extends Watcher {
 	private IRPCProvider eosioJavaRpcProviderImpl;
 	@Autowired
 	private ExecutorService executorService;
+	@Autowired
+	private DepositEvent depositEvent;
 
 	@Override
 	public List<Deposit> replayBlock(Long startBlockNumber, Long endBlockNumber) {
 		List<Deposit> deposits = new ArrayList<>();
+		List<GetBlockResponse> blockListsBlockResponses = new ArrayList<GetBlockResponse>();
+		executorService.execute(new Runnable() {
+			public void run() {
+				for (Long blockHeight = startBlockNumber; blockHeight <= endBlockNumber; blockHeight++) {
+					GetBlockRequest request = new GetBlockRequest(blockHeight.toString());
+					GetBlockResponse getBlockResponse = null;
+					try {
+						getBlockResponse = eosioJavaRpcProviderImpl.getBlock(request);
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
+					if (getBlockResponse != null) {
+						blockListsBlockResponses.add(getBlockResponse);
+					}
+				}
+				readBlockTxns(blockListsBlockResponses);
+				// readBlockTxnsThread(blockListsBlockResponses);
+			}
+		});
+		return deposits;
+	}
+
+	/**
+	 * 读取区块交易线程
+	 */
+	/*
+	 * public void readBlockTxnsThread(List<GetBlockResponse>
+	 * blockListsBlockResponses) { executorService.execute(new Runnable() { public
+	 * void run() { readBlockTxns(blockListsBlockResponses); } }); }
+	 */
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	public void readBlockTxns(List<GetBlockResponse> blockListsBlockResponses) {
+		List<Deposit> deposits = new ArrayList<>();
 		try {
-			for (Long blockHeight = startBlockNumber; blockHeight <= endBlockNumber; blockHeight++) {
-				GetBlockRequest request = new GetBlockRequest(blockHeight.toString());
-				GetBlockResponse getBlockResponse = eosioJavaRpcProviderImpl.getBlock(request);		
-				@SuppressWarnings("rawtypes")
+			for (GetBlockResponse getBlockResponse : blockListsBlockResponses) {
+
 				List<Map> txnsList = getBlockResponse.getTransactions();
 				for (int i = 0; i < txnsList.size(); i++) {
-					@SuppressWarnings("unchecked")
 					Map<String, Object> map = txnsList.get(i);
 					String txnData = map.get("trx").toString();
 					String judgingCondition = "to=" + coin.getWithdrawAddress();
@@ -67,32 +102,16 @@ public class EosWatcher extends Watcher {
 						logger.info("receive {} EOS", quantity);
 					}
 				}
-
 			}
+			deposits.forEach(deposit -> {
+				depositEvent.onConfirmed(deposit);
+			});
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
-		return deposits;
-	}
-
-	/**
-	 * 读取区块交易线程
-	 */
-	public void readBlockTxnsThread() {
-		executorService.execute(new Runnable() {
-			public void run() {
-				
-			}
-		});
-	}
-	
-	public void readBlockTxns() {
-		List<Deposit> deposits = new ArrayList<>();
-		try {
-		    
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
+		logger.info("读取" + blockListsBlockResponses.get(0).getBlockNum() + " 区块到"
+				+ blockListsBlockResponses.get(blockListsBlockResponses.size() - 1).getBlockNum() + " 区块数据结束");
+		logger.info(Thread.currentThread().getName() + " readBlockTxns 线程结束");
 	}
 
 	@Override
